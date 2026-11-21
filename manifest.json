@@ -4,9 +4,23 @@
   "display": "standalone",
   "name": "Baby Monitor",
   "orientation": "any",
-  "scope": "/",
+  "scope": "/baby-monitor/",
   "short_name": "BMV1",
-  "start_url": "/",
+  "start_url": "/baby-monitor/",
   "theme_color": "#ffffff",
-  "id": "ifty194.babymonitor"
+  "id": "ifty194.babymonitor",
+  "icons": [
+    {
+      "src": "launchericon-192x192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "launchericon-512x512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    }
+  ]
 }
