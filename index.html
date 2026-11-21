@@ -1,0 +1,260 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Baby Monitor</title>
+<style>
+:root{--bg:#f6f4f1;--card:#fff;--text:#1f2328;--muted:#6b7280;--line:#e5e1db;--ok:#1f8a4c;--warn:#b7791f;--bad:#c62828;--accent:#3b6fd4;color-scheme:light;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#15171a;--card:#1f2327;--text:#eceff1;--muted:#9aa4ad;--line:#33393f;--ok:#4cc27f;--warn:#e0a84a;--bad:#ff6b6b;--accent:#7aa2f7;color-scheme:dark}}
+:root[data-theme="dark"]{--bg:#15171a;--card:#1f2327;--text:#eceff1;--muted:#9aa4ad;--line:#33393f;--ok:#4cc27f;--warn:#e0a84a;--bad:#ff6b6b;--accent:#7aa2f7;color-scheme:dark}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--text);font:16px/1.45 system-ui,-apple-system,"Segoe UI",sans-serif}
+main{max-width:640px;margin:0 auto;padding:16px}
+h1{font-size:20px;margin:0 0 4px}
+.sub{color:var(--muted);font-size:13px;margin:0 0 14px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:12px;margin-bottom:12px}
+#vid{position:relative;border-radius:10px;overflow:hidden;background:#000;aspect-ratio:4/3;touch-action:none;cursor:crosshair}
+video{width:100%;height:100%;display:block;object-fit:fill}
+#box{position:absolute;aspect-ratio:1;transform:translate(-50%,-50%);border:3px solid #4cc27f;border-radius:10px;pointer-events:none;box-shadow:0 0 0 1px rgba(0,0,0,.5)}
+#box.bad{border-color:#ff4d4d}
+.status{display:flex;align-items:center;gap:10px;font-weight:600;margin-top:10px}
+.dot{width:12px;height:12px;border-radius:50%;background:var(--muted);flex:none}
+.ok .dot{background:var(--ok)}.warn .dot{background:var(--warn)}.bad .dot{background:var(--bad);animation:p 1s infinite}
+@keyframes p{50%{opacity:.3}}
+.status.bad{color:var(--bad)}
+.meter{position:relative;height:10px;border-radius:5px;background:var(--bg);border:1px solid var(--line);margin:10px 0 4px;overflow:hidden}
+#fill{height:100%;width:0;background:var(--ok);transition:width .3s}
+#tm{position:absolute;top:0;bottom:0;width:2px;background:var(--bad);left:50%}
+.row{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-top:8px}
+label{font-size:13px;color:var(--muted);display:flex;align-items:center;gap:8px;width:100%}
+input[type=range]{flex:1}
+button{font:inherit;border:0;border-radius:10px;padding:12px 14px;background:var(--accent);color:#fff;font-weight:600;cursor:pointer;flex:1;min-width:130px}
+button:disabled{opacity:.4;cursor:default}
+button.stop{background:var(--bad)}button.sec{background:var(--bg);color:var(--text);border:1px solid var(--line)}
+select{font:inherit;padding:10px;border-radius:10px;border:1px solid var(--line);background:var(--card);color:var(--text)}
+#alarm{display:none;margin-bottom:12px;background:var(--bad);color:#fff;border-radius:14px;padding:14px;font-weight:700}
+#alarm button{background:#fff;color:var(--bad);margin-top:10px;width:100%}
+ul{list-style:none;margin:8px 0 0;padding:0;max-height:200px;overflow:auto}
+li{padding:6px 0;border-bottom:1px solid var(--line);font-size:14px}
+li time{color:var(--muted);margin-right:6px}
+li.b{color:var(--bad);font-weight:600}li.w{color:var(--warn)}
+.note{font-size:12px;color:var(--muted)}
+ol{margin:0 0 6px;padding-left:20px;font-size:14px}
+</style>
+</head>
+<body>
+<main>
+<h1>Baby Monitor</h1>
+<p class="sub">Works entirely on your device. Watches his face and alarms if it gets covered or disappears.</p>
+
+<div id="alarm"><div id="alarmText"></div><button id="silence">I’m checking on him – silence alarm</button></div>
+
+<div class="card">
+<div id="vid"><video id="v" playsinline muted></video><div id="box"></div></div>
+<div class="status" id="statusRow"><span class="dot"></span><span id="statusText">Camera off</span></div>
+<div class="meter"><div id="fill"></div><div id="tm"></div></div>
+<div class="note"><span id="mt">Face match: –</span> · Movement: <span id="mov">–</span> · Built-in face detector: <span id="fdst">–</span></div>
+</div>
+
+<div class="card">
+<ol>
+<li>Start the camera and aim it at his face.</li>
+<li>Tap or drag on the video to put the green box over his face, and resize it so it fits just his face.</li>
+<li>Press <b>Calibrate</b> while his face is clearly visible and uncovered.</li>
+<li>Press <b>Start monitoring</b>.</li>
+</ol>
+<label>Box size <input type="range" id="size" min="12" max="60" value="30"></label>
+<div class="row">
+<button id="cam">1. Start camera</button>
+<button id="cal" class="sec" disabled>2. Calibrate</button>
+<button id="mon" disabled>3. Start monitoring</button>
+</div>
+<div class="row">
+<select id="sens" aria-label="Sensitivity">
+<option value="high">High sensitivity (alarm after 3 s)</option>
+<option value="normal" selected>Normal (alarm after 6 s)</option>
+<option value="low">Low (alarm after 10 s)</option>
+</select>
+<button id="test" class="sec" style="flex:none;min-width:0">Test alarm</button>
+</div>
+<p class="note" id="msg" style="margin:8px 0 0"></p>
+</div>
+
+<div class="card"><b>Event log</b><ul id="log"></ul></div>
+
+<p class="note">This is a simple colour and texture check, not artificial intelligence. It can only tell that the face area no longer looks like the calibration. It cannot detect choking, vomiting or breathing, and it can be fooled by blankets that look like skin, by big lighting changes, or if he turns his head away. Re-calibrate if you move the camera or the lights change. It is a helper, not a medical device, and no substitute for a certified monitor or for checking on your baby. Keep the screen on and the device plugged in. If your baby may be choking or not breathing, act immediately and call emergency services.</p>
+</main>
+
+<script>
+(function(){
+var $=function(i){return document.getElementById(i)};
+var v=$('v'),vid=$('vid'),box=$('box');
+var stream=null,running=false,timer=null,wake=null,actx=null,alarmTimer=null,alarmOn=false;
+var bx=.5,by=.45,bs=.3,base=null,bad=0,prev=null,lastBig=0,fd=null,faceAt=0,episode=false,busyCal=false;
+var cvs=document.createElement('canvas');cvs.width=320;cvs.height=240;
+var ctx=cvs.getContext('2d',{willReadFrequently:true});
+var sm=document.createElement('canvas');sm.width=64;sm.height=48;
+var sctx=sm.getContext('2d',{willReadFrequently:true});
+var SENS={high:{t:.65,h:3},normal:{t:.55,h:6},low:{t:.45,h:10}};
+var CB=12;
+
+function now(){return new Date().toLocaleTimeString([], {hour:'2-digit',minute:'2-digit',second:'2-digit'})}
+function setStatus(c,t){$('statusRow').className='status '+c;$('statusText').textContent=t;box.className=c==='bad'?'bad':''}
+function log(t,c){
+ var li=document.createElement('li');if(c)li.className=c;
+ var tm=document.createElement('time');tm.textContent=now();
+ li.appendChild(tm);li.appendChild(document.createTextNode(t));
+ var ul=$('log');ul.insertBefore(li,ul.firstChild);while(ul.children.length>60)ul.removeChild(ul.lastChild)
+}
+function beep(){
+ try{var o=actx.createOscillator(),g=actx.createGain();o.type='square';o.frequency.value=880;g.gain.value=.25;o.connect(g);g.connect(actx.destination);o.start();o.stop(actx.currentTime+.35)}catch(e){}
+ try{if(navigator.vibrate)navigator.vibrate([300,150,300])}catch(e){}
+}
+function unlockAudio(){try{if(!actx)actx=new (window.AudioContext||window.webkitAudioContext)();actx.resume()}catch(e){}}
+function raise(t){
+ $('alarmText').textContent='⚠ '+t;$('alarm').style.display='block';
+ if(alarmOn)return;alarmOn=true;beep();alarmTimer=setInterval(beep,900);document.title='⚠ ALERT – Baby Monitor'
+}
+function silence(){alarmOn=false;clearInterval(alarmTimer);$('alarm').style.display='none';document.title='Baby Monitor'}
+$('silence').onclick=silence;
+$('test').onclick=function(){unlockAudio();raise('Test alarm. This is what an alert sounds like.')};
+
+/* box placement */
+function place(){box.style.left=bx*100+'%';box.style.top=by*100+'%';box.style.width=bs*100+'%'}
+function clamp(x,a,b){return Math.max(a,Math.min(b,x))}
+var drag=false;
+function mv(e){var r=vid.getBoundingClientRect();bx=clamp((e.clientX-r.left)/r.width,.05,.95);by=clamp((e.clientY-r.top)/r.height,.05,.95);place()}
+vid.addEventListener('pointerdown',function(e){drag=true;try{vid.setPointerCapture(e.pointerId)}catch(x){}mv(e)});
+vid.addEventListener('pointermove',function(e){if(drag)mv(e)});
+vid.addEventListener('pointerup',function(){drag=false});
+$('size').oninput=function(){bs=this.value/100;place()};
+place();
+
+/* image features */
+function draw(){
+ var w=v.videoWidth;if(!w)return false;
+ cvs.height=Math.round(320*v.videoHeight/w);ctx.drawImage(v,0,0,320,cvs.height);return true
+}
+function feat(){
+ var W=cvs.width,H=cvs.height,side=Math.min(Math.round(bs*W),H);
+ var x0=clamp(Math.round(bx*W-side/2),0,W-side),y0=clamp(Math.round(by*H-side/2),0,H-side);
+ var d=ctx.getImageData(x0,y0,side,side).data,n=side*side,p,i;
+ var ch=new Array(CB*CB).fill(0),lu=new Array(16).fill(0),Ys=new Float32Array(n),skin=0,cnt=0,sumY=0;
+ for(i=0,p=0;p<n;i+=4,p++){
+  var r=d[i],g=d[i+1],b=d[i+2],y=.299*r+.587*g+.114*b;Ys[p]=y;sumY+=y;
+  var cb=128-.168736*r-.331264*g+.5*b,cr=128+.5*r-.418688*g-.081312*b;
+  if(y>40&&cb>77&&cb<127&&cr>133&&cr<173)skin++;
+  var s=r+g+b;
+  if(s>90){cnt++;ch[Math.min(CB-1,Math.floor(r/s*CB))*CB+Math.min(CB-1,Math.floor(g/s*CB))]++}
+ }
+ var mY=sumY/n||1,edge=0;
+ for(p=0;p<n;p++){lu[Math.min(15,Math.floor(Ys[p]/mY*8))]++;if(p%side<side-1)edge+=Math.abs(Ys[p+1]-Ys[p])}
+ for(i=0;i<ch.length;i++)ch[i]/=(cnt||1);
+ for(i=0;i<16;i++)lu[i]/=n;
+ return{skin:skin/n,ch:ch,lu:lu,edge:edge/n/mY,y:mY}
+}
+function inter(a,b){var s=0;for(var i=0;i<a.length;i++)s+=Math.min(a[i],b[i]);return s}
+function match(f,b){
+ if(b.color)return .6*Math.min(1,f.skin/b.skin)+.4*inter(f.ch,b.ch);
+ return .5*inter(f.lu,b.lu)+.5*Math.min(f.edge,b.edge)/Math.max(f.edge,b.edge,1e-6)
+}
+function avg(fs){
+ var o={skin:0,edge:0,y:0,ch:new Array(CB*CB).fill(0),lu:new Array(16).fill(0)};
+ fs.forEach(function(f){o.skin+=f.skin/fs.length;o.edge+=f.edge/fs.length;o.y+=f.y/fs.length;
+  f.ch.forEach(function(x,i){o.ch[i]+=x/fs.length});f.lu.forEach(function(x,i){o.lu[i]+=x/fs.length})});
+ return o
+}
+function motion(){
+ sctx.drawImage(v,0,0,64,48);var d=sctx.getImageData(0,0,64,48).data;
+ if(!prev){prev=d;return 0}
+ var s=0;for(var i=0;i<d.length;i+=4)s+=Math.abs(d[i]-prev[i])+Math.abs(d[i+1]-prev[i+1])+Math.abs(d[i+2]-prev[i+2]);
+ prev=d;return s/(64*48*3)
+}
+function sleep(ms){return new Promise(function(r){setTimeout(r,ms)})}
+
+/* camera */
+async function camOn(){
+ $('msg').textContent='';
+ try{
+  stream=await navigator.mediaDevices.getUserMedia({video:{facingMode:'environment',width:{ideal:1280}},audio:false});
+  v.srcObject=stream;await v.play();
+  vid.style.aspectRatio=(v.videoWidth/v.videoHeight)||'4/3';
+ }catch(e){$('msg').textContent='Camera access was blocked. Allow the camera and try again.';return}
+ try{if('FaceDetector' in window){fd=new window.FaceDetector({fastMode:true,maxDetectedFaces:3});$('fdst').textContent='on'}else $('fdst').textContent='not available'}catch(e){fd=null;$('fdst').textContent='not available'}
+ $('cam').textContent='Stop camera';$('cam').className='stop';$('cal').disabled=false;
+ setStatus('','Camera on – position the box, then calibrate');
+}
+function camOff(){
+ stopMon();if(stream){stream.getTracks().forEach(function(t){t.stop()});stream=null}
+ $('cam').textContent='1. Start camera';$('cam').className='';$('cal').disabled=true;$('mon').disabled=true;base=null;
+ setStatus('','Camera off')
+}
+$('cam').onclick=function(){unlockAudio();stream?camOff():camOn()};
+
+/* calibration */
+$('cal').onclick=async function(){
+ if(!stream||busyCal||running)return;busyCal=true;$('cal').disabled=true;
+ var fs=[];setStatus('warn','Calibrating – keep his face visible…');
+ for(var i=0;i<10;i++){if(draw())fs.push(feat());await sleep(400)}
+ busyCal=false;$('cal').disabled=false;
+ if(!fs.length){$('msg').textContent='No video yet. Try again.';return}
+ var a=avg(fs);
+ if(a.y<25){setStatus('warn','Too dark to calibrate');$('msg').textContent='The picture is too dark. Turn on a night light or use a camera with night vision.';return}
+ a.color=a.skin>=.2;
+ var ms=fs.map(function(f){return match(f,a)});
+ a.floor=Math.min.apply(null,ms)-.12;base=a;
+ $('mon').disabled=false;
+ var m=a.color?'colour (skin) mode':'night / grayscale mode';
+ $('msg').textContent='Calibrated in '+m+'. Now press Start monitoring.';
+ log('Calibrated ('+m+')');setStatus('ok','Calibrated – ready to monitor');
+};
+
+/* monitoring */
+function cfg(){var s=SENS[$('sens').value];return{t:clamp(Math.min(s.t,base?base.floor:s.t),.2,1),h:s.h}}
+async function tick(){
+ if(!running)return;
+ try{
+  if(!stream||stream.getTracks()[0].readyState!=='live'){setStatus('bad','Camera stopped');raise('The camera stopped. Check on your baby directly.');return}
+  if(!draw()){timer=setTimeout(tick,1000);return}
+  var mvv=motion();$('mov').textContent=mvv<2?'still':mvv<8?'some':'lots';
+  if(mvv>12&&Date.now()-lastBig>20000){lastBig=Date.now();log('Big movement – he may have changed position','w')}
+  if(fd){fd.detect(cvs).then(function(fs){var W=cvs.width,H=cvs.height,s=bs*W*.9;
+   if(fs.some(function(f){var b=f.boundingBox,cx=b.x+b.width/2,cy=b.y+b.height/2;return Math.abs(cx-bx*W)<s&&Math.abs(cy-by*H)<s}))faceAt=Date.now()}).catch(function(){fd=null;$('fdst').textContent='not available'})}
+  var f=feat(),m=match(f,base),c=cfg(),dark=f.y<25,seen=Date.now()-faceAt<2500;
+  $('fill').style.width=clamp(m,0,1)*100+'%';$('tm').style.left=c.t*100+'%';
+  $('fill').style.background=m<c.t?'var(--bad)':'var(--ok)';
+  $('mt').textContent='Face match: '+Math.round(m*100)+'% (alarm below '+Math.round(c.t*100)+'%)';
+  var isBad=dark||(m<c.t&&!seen);
+  if(isBad)bad++;else{bad=0;if(episode){episode=false;log('Face visible again')}}
+  if(bad>=c.h){
+   var t=dark?'Too dark to see his face':'Face may be covered or hidden';
+   setStatus('bad',t);
+   if(!episode){episode=true;log(t,'b')}
+   raise(t+'. Check on your baby now.');
+  }else if(bad>0)setStatus('warn','Checking… face not matching ('+bad+' s)');
+  else setStatus('ok','Face visible – all clear');
+ }catch(e){setStatus('warn','Check error – retrying')}
+ if(running)timer=setTimeout(tick,1000);
+}
+async function startMon(){
+ if(!base||!stream)return;unlockAudio();
+ try{if(navigator.wakeLock)wake=await navigator.wakeLock.request('screen')}catch(e){}
+ running=true;bad=0;episode=false;prev=null;
+ $('mon').textContent='Stop monitoring';$('mon').className='stop';$('cal').disabled=true;
+ log('Monitoring started');tick();
+}
+function stopMon(){
+ if(!running)return;running=false;clearTimeout(timer);
+ try{if(wake)wake.release()}catch(e){}
+ $('mon').textContent='3. Start monitoring';$('mon').className='';if(stream)$('cal').disabled=false;
+ setStatus('','Monitoring stopped');log('Monitoring stopped');
+}
+$('mon').onclick=function(){running?stopMon():startMon()};
+document.addEventListener('visibilitychange',function(){
+ if(running&&!document.hidden&&navigator.wakeLock)navigator.wakeLock.request('screen').then(function(w){wake=w}).catch(function(){});
+});
+})();
+</script>
+</body>
+</html>
