@@ -69,6 +69,7 @@ ol{margin:0 0 6px;padding-left:20px;font-size:14px}
 <p class="note" id="msg" style="margin:8px 0 0"></p>
 <label>Box size <input type="range" id="size" min="12" max="60" value="30"></label>
 <label>Alarm when this much of his face is covered: <b id="lim">50%</b> <input type="range" id="limit" min="20" max="90" step="5" value="50"></label>
+<label><input type="checkbox" id="follow" checked> Follow his face automatically as he moves</label>
 <div class="row">
 <select id="sens" aria-label="Sensitivity">
 <option value="high">High sensitivity (alarm after 3 s)</option>
@@ -102,6 +103,7 @@ var sm=document.createElement('canvas');sm.width=64;sm.height=48;
 var sctx=sm.getContext('2d',{willReadFrequently:true});
 var SENS={high:{t:.7,h:3},normal:{t:.6,h:6},low:{t:.5,h:10}};
 var CB=12;
+var follow=true,tpl=null,tplDirty=true,covNow=0,trackTimer=null;
 
 function now(){return new Date().toLocaleTimeString([], {hour:'2-digit',minute:'2-digit',second:'2-digit'})}
 function setStatus(c,t){$('statusRow').className='status '+c;$('statusText').textContent=t;box.className=c==='bad'?'bad':''}
@@ -128,11 +130,12 @@ $('test').onclick=function(){unlockAudio();raise('Test alarm. This is what an al
 function place(){box.style.left=bx*100+'%';box.style.top=by*100+'%';box.style.width=bs*100+'%'}
 function clamp(x,a,b){return Math.max(a,Math.min(b,x))}
 var drag=false;
-function mv(e){var r=vid.getBoundingClientRect();bx=clamp((e.clientX-r.left)/r.width,.05,.95);by=clamp((e.clientY-r.top)/r.height,.05,.95);place()}
+function mv(e){var r=vid.getBoundingClientRect();bx=clamp((e.clientX-r.left)/r.width,.05,.95);by=clamp((e.clientY-r.top)/r.height,.05,.95);tplDirty=true;place()}
 vid.addEventListener('pointerdown',function(e){drag=true;try{vid.setPointerCapture(e.pointerId)}catch(x){}mv(e)});
 vid.addEventListener('pointermove',function(e){if(drag)mv(e)});
 vid.addEventListener('pointerup',function(){drag=false});
-$('size').oninput=function(){bs=this.value/100;place()};
+$('size').oninput=function(){bs=this.value/100;tplDirty=true;place()};
+$('follow').onchange=function(){follow=this.checked;tplDirty=true};
 place();
 var N=4,cells=[],limit=.5;
 for(var k=0;k<N*N;k++){var ce=document.createElement('i');box.appendChild(ce);cells.push(ce)}
@@ -259,6 +262,33 @@ $('cal').onclick=async function(){
  log('Calibrated ('+m+')');setStatus('ok','Calibrated – ready to monitor');
 };
 
+/* face following (template tracking) */
+function fill(g,W,x0,y0,T,st,o){var s=0,k=0,ty,tx;for(ty=0;ty<T;ty++)for(tx=0;tx<T;tx++){var q=g[(y0+ty*st)*W+x0+tx*st];o[k++]=q;s+=q}var m=s/o.length;for(k=0;k<o.length;k++)o[k]-=m}
+function grayAll(){var W=cvs.width,H=cvs.height,d=ctx.getImageData(0,0,W,H).data,g=new Float32Array(W*H);for(var i=0,p=0;p<g.length;i+=4,p++)g[p]=.299*d[i]+.587*d[i+1]+.114*d[i+2];return g}
+function setTpl(g){
+ var W=cvs.width,H=cvs.height,st=3,S=Math.min(Math.round(bs*W),H-4),T=Math.floor(S/st)-1;
+ var x0=clamp(Math.round(bx*W-S/2),0,W-S),y0=clamp(Math.round(by*H-S/2),0,H-S);
+ var a=new Float32Array(T*T);fill(g,W,x0,y0,T,st,a);var mad=0;for(var k=0;k<a.length;k++)mad+=Math.abs(a[k]);
+ tpl={a:a,T:T,st:st,S:S,mad:mad/a.length};tplDirty=false
+}
+function track(){
+ if(!running||!follow||!stream||!draw())return;
+ var W=cvs.width,H=cvs.height,g=grayAll();
+ if(tplDirty||!tpl){setTpl(g);return}
+ var S=tpl.S,T=tpl.T,st=tpl.st,R=Math.round(S*.3),cx=Math.round(bx*W-S/2),cy=Math.round(by*H-S/2);
+ var buf=new Float32Array(T*T),best=1e9,bdx=0,bdy=0,dx,dy,k,sad;
+ for(dy=-R;dy<=R;dy+=2){var y0=cy+dy;if(y0<0||y0+T*st>=H)continue;
+  for(dx=-R;dx<=R;dx+=2){var x0=cx+dx;if(x0<0||x0+T*st>=W)continue;
+   fill(g,W,x0,y0,T,st,buf);sad=0;for(k=0;k<buf.length;k++)sad+=Math.abs(buf[k]-tpl.a[k]);
+   if(sad<best){best=sad;bdx=dx;bdy=dy}}}
+ var score=best/buf.length/(tpl.mad+1);
+ if(score<.7&&covNow<.25&&bad===0){
+  var lim=S*.25,sx=clamp(bdx*.6,-lim,lim),sy=clamp(bdy*.6,-lim,lim);
+  if(score<.35&&covNow<.1){fill(g,W,cx+bdx,cy+bdy,T,st,buf);for(k=0;k<buf.length;k++)tpl.a[k]=.92*tpl.a[k]+.08*buf[k]}
+  bx=clamp((bx*W+sx)/W,.05,.95);by=clamp((by*H+sy)/H,.05,.95);place();
+ }
+}
+
 /* monitoring */
 function cfg(){var s=SENS[$('sens').value];return{t:s.t,h:s.h}}
 async function tick(){
@@ -272,7 +302,7 @@ async function tick(){
    if(fs.some(function(f){var b=f.boundingBox,cx=b.x+b.width/2,cy=b.y+b.height/2;return Math.abs(cx-bx*W)<s&&Math.abs(cy-by*H)<s}))faceAt=Date.now()}).catch(function(){fd=null;$('fdst').textContent='not available'})}
   var f=feat(),c=cfg(),dark=f.y<25,gr=grid(),cov=0;
   gr.forEach(function(x,i){var b1=cellMatch(x,base.cells[i])<clamp(Math.min(c.t,base.cfloor[i]),.2,1);cells[i].className=b1?'c':'';if(b1)cov++});
-  var pc=cov/(N*N);
+  var pc=cov/(N*N);covNow=pc;
   $('fill').style.width=pc*100+'%';$('tm').style.left=limit*100+'%';
   $('fill').style.background=pc>=limit?'var(--bad)':'var(--ok)';
   $('mt').textContent='Face covered: '+Math.round(pc*100)+'% (alarm at '+Math.round(limit*100)+'%)';
@@ -291,12 +321,12 @@ async function tick(){
 async function startMon(){
  if(!base||!stream)return;unlockAudio();
  try{if(navigator.wakeLock)wake=await navigator.wakeLock.request('screen')}catch(e){}
- running=true;bad=0;episode=false;prev=null;
+ running=true;bad=0;episode=false;prev=null;tpl=null;tplDirty=true;clearInterval(trackTimer);trackTimer=setInterval(track,250);
  $('mon').textContent='Stop monitoring';$('mon').className='stop';$('cal').disabled=true;
  log('Monitoring started');tick();
 }
 function stopMon(){
- if(!running)return;running=false;clearTimeout(timer);
+ if(!running)return;running=false;clearTimeout(timer);clearInterval(trackTimer);
  try{if(wake)wake.release()}catch(e){}
  $('mon').textContent='3. Start monitoring';$('mon').className='';if(stream)$('cal').disabled=false;
  setStatus('','Monitoring stopped');log('Monitoring stopped');
